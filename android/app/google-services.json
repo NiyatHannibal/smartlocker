@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "383515996407",
+    "project_id": "smartlocker-2137e",
+    "storage_bucket": "smartlocker-2137e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:383515996407:android:38aff63a1540fefde223f2",
+        "android_client_info": {
+          "package_name": "com.example.smartlockersystem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBKIr2WC6_ApHvodxnyn3ti1AKrCbHuIw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
