@@ -1,10 +1,11 @@
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
 import 'lock_unlock_page.dart';
 
 class BluetoothConnectionPage extends StatefulWidget {
-  const BluetoothConnectionPage({super.key});
+  const BluetoothConnectionPage({Key? key}) : super(key: key);
 
   @override
   _BluetoothConnectionPageState createState() =>
@@ -13,13 +14,14 @@ class BluetoothConnectionPage extends StatefulWidget {
 
 class _BluetoothConnectionPageState extends State<BluetoothConnectionPage>
     with SingleTickerProviderStateMixin {
-  BluetoothConnection? connection;
-  String message = 'Tap the Bluetooth icon to start';
-  Color messageColor = Colors.white;
+  BluetoothConnection? _connection;
+  String _message = 'Tap the Bluetooth icon to start';
+  Color _messageColor = Colors.white;
   bool _isConnecting = false;
   late AnimationController _animationController;
   late Animation<double> _animation;
   List<BluetoothDevice> _availableDevices = [];
+  bool _isBluetoothEnabled = false;
 
   @override
   void initState() {
@@ -37,49 +39,70 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage>
   @override
   void dispose() {
     _animationController.dispose();
+    if (_connection != null && _connection!.isConnected) {
+      _connection!.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _checkBluetoothEnabled() async {
     try {
-      bool isEnabled = await FlutterBluetoothSerial.instance.isEnabled ?? false;
-      if (!isEnabled) {
+      _isBluetoothEnabled =
+          await FlutterBluetoothSerial.instance.isEnabled ?? false;
+      if (!_isBluetoothEnabled) {
         await FlutterBluetoothSerial.instance.requestEnable();
+        _isBluetoothEnabled = true;
       }
     } catch (e) {
       setState(() {
-        message = "Error during Bluetooth check: $e";
-        messageColor = Colors.red;
+        _message = "Error during Bluetooth check: $e";
+        _messageColor = Colors.red;
+      });
+      _isBluetoothEnabled = false;
+    }
+    if (_isBluetoothEnabled == true) {
+      setState(() {
+        _message = "Bluetooth Disabled. Tap the Icon to Enable";
       });
     }
   }
 
-  Future<List<BluetoothDevice>> _startDiscovery() async {
+  Future<void> _startDiscovery() async {
     setState(() {
-      message = 'Scanning for devices...';
+      _message = 'Scanning for devices...';
       _isConnecting = true;
       _availableDevices = [];
     });
 
     try {
-      List<BluetoothDevice> devices = [];
-      await FlutterBluetoothSerial.instance.startDiscovery().listen((result) {
-        if (!devices
-            .any((element) => element.address == result.device.address)) {
-          devices.add(result.device);
-          setState(() {
-            message = 'Found ${result.device.name}';
+      FlutterBluetoothSerial.instance
+          .startDiscovery()
+          .listen((result) {
+            if (!_availableDevices
+                .any((element) => element.address == result.device.address)) {
+              _availableDevices.add(result.device);
+              setState(() {
+                _message = 'Found ${result.device.name}';
+              });
+            }
+          })
+          .asFuture()
+          .then((_) {
+            _connectToTargetDevice();
+          })
+          .catchError((e) {
+            setState(() {
+              _message = "Error during Bluetooth discovery: $e";
+              _messageColor = Colors.red;
+              _isConnecting = false;
+            });
           });
-        }
-      }).asFuture();
-      return devices;
     } catch (e) {
       setState(() {
-        message = "Error during Bluetooth discovery: $e";
-        messageColor = Colors.red;
+        _message = "Error during Bluetooth discovery: $e";
+        _messageColor = Colors.red;
         _isConnecting = false;
       });
-      return [];
     } finally {
       setState(() {
         _isConnecting = false;
@@ -87,47 +110,65 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage>
     }
   }
 
-  void _showAvailableDevices() async {
-    List<BluetoothDevice> devices = await _startDiscovery();
+  void _connectToTargetDevice() async {
+    final hc05Device = _availableDevices
+        .firstWhereOrNull((device) => device.name?.contains("HC-05") == true);
 
-    setState(() {
-      _availableDevices = devices;
-      if (_availableDevices.isEmpty) {
-        message = "No devices found. Please try again.";
-        messageColor = Colors.red;
-      } else {
-        message = "Please select a device to connect to";
-      }
-    });
+    if (hc05Device != null) {
+      _connectToDevice(hc05Device);
+    } else {
+      setState(() {
+        _message = "HC-05 Device not found";
+        _messageColor = Colors.red;
+      });
+    }
   }
 
   void _connectToDevice(BluetoothDevice device) async {
     setState(() {
-      message = 'Connecting to ${device.name}...';
+      _message = 'Connecting to ${device.name}...';
       _isConnecting = true;
     });
 
     try {
       BluetoothConnection.toAddress(device.address).then((conn) {
-        connection = conn;
+        _connection = conn;
+        if (_connection != null && device.name != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => LockUnlockPage(
+                      connection: _connection!,
+                      deviceName: device.name!,
+                    )),
+          );
+        }
         setState(() {
-          message = "Connected to ${device.name}";
-          messageColor = Colors.green;
+          _message = "Connected to ${device.name}";
+          _messageColor = Colors.green;
           _isConnecting = false;
         });
       }).catchError((e) {
         setState(() {
-          message = "Error during connection: $e";
-          messageColor = Colors.red;
+          _message = "Error during connection: $e";
+          _messageColor = Colors.red;
           _isConnecting = false;
         });
       });
     } catch (e) {
       setState(() {
-        message = "Error during connection: $e";
-        messageColor = Colors.red;
+        _message = "Error during connection: $e";
+        _messageColor = Colors.red;
         _isConnecting = false;
       });
+    }
+  }
+
+  void _showAvailableDevices() async {
+    if (_isBluetoothEnabled) {
+      _startDiscovery();
+    } else {
+      _checkBluetoothEnabled();
     }
   }
 
@@ -149,9 +190,7 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GestureDetector(
-                  onTap: _isConnecting
-                      ? null
-                      : _showAvailableDevices, // disable onTap when connecting
+                  onTap: _isConnecting ? null : _showAvailableDevices,
                   child: _isConnecting
                       ? AnimatedOpacity(
                           opacity: _animation.value,
@@ -163,63 +202,17 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage>
                       : Icon(
                           Icons.bluetooth,
                           size: 100,
-                          color: messageColor,
+                          color:
+                              _isBluetoothEnabled ? _messageColor : Colors.grey,
                         ),
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  message,
-                  style: TextStyle(color: messageColor, fontSize: 18),
+                  _message,
+                  style: TextStyle(color: _messageColor, fontSize: 18),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 10),
-                if (!_isConnecting && _availableDevices.isNotEmpty)
-                  SizedBox(
-                    height: 200,
-                    width: 300,
-                    child: ListView.builder(
-                      itemCount: _availableDevices.length,
-                      itemBuilder: (context, index) {
-                        return ListTile(
-                          title: Text(
-                            _availableDevices[index].name ?? 'Unknown Device',
-                            style: const TextStyle(
-                              color: Colors.white,
-                            ),
-                          ),
-                          onTap: () =>
-                              _connectToDevice(_availableDevices[index]),
-                        );
-                      },
-                    ),
-                  ),
-                const SizedBox(height: 40),
-                ElevatedButton(
-                  onPressed: () {
-                    if (connection != null && connection!.isConnected) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => const LockUnlockPage()),
-                      );
-                    } else {
-                      setState(() {
-                        message = "Failed to connect. Please try again.";
-                        messageColor = Colors.red;
-                      });
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.blue.shade700,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30.0),
-                    ),
-                  ),
-                  child: const Text('Go to Lock/Unlock'),
-                ),
               ],
             ),
           ),

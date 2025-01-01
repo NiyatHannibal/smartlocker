@@ -1,37 +1,89 @@
-import 'package:animated_text_kit/animated_text_kit.dart'; // For animated text
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
 import 'pin_screen.dart';
 
 class LockUnlockPage extends StatefulWidget {
-  const LockUnlockPage({super.key});
+  final BluetoothConnection connection;
+  final String deviceName;
+
+  const LockUnlockPage(
+      {super.key, required this.connection, required this.deviceName});
 
   @override
   _LockUnlockPageState createState() => _LockUnlockPageState();
 }
 
-class _LockUnlockPageState extends State<LockUnlockPage>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _animation;
+class _LockUnlockPageState extends State<LockUnlockPage> {
+  String message = "Locker is locked";
+  Color messageColor = Colors.white;
+  late BluetoothConnection connection;
+  bool _isSending = false;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(seconds: 2), // Duration of icon animation
-      vsync: this,
-    );
-    _animation = CurvedAnimation(
-        parent: _animationController, curve: Curves.easeOutCubic);
-    _animationController.forward();
+    connection = widget.connection;
+    _subscribeToDataStream();
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    connection.dispose();
     super.dispose();
+  }
+
+  void _subscribeToDataStream() {
+    connection.input?.listen((Uint8List data) {
+      String receivedMessage = String.fromCharCodes(data).trim();
+      setState(() {
+        message = receivedMessage;
+      });
+    }).onError((error) {
+      setState(() {
+        message = "Error receiving data: $error";
+        messageColor = Colors.red;
+      });
+    });
+  }
+
+  Future<void> _sendData(String command) async {
+    if (_isSending) return;
+
+    setState(() {
+      _isSending = true;
+      message = "Sending command..."; //Feedback for sending action
+      messageColor = Colors.yellow;
+    });
+
+    try {
+      if (connection.isConnected) {
+        connection.output.add(Uint8List.fromList(utf8.encode(command + "\n")));
+        await connection.output.allSent;
+        setState(() {
+          message =
+              "Command Sent: $command"; // Feedback of sent command, wait for response from device.
+          messageColor = Colors.blue;
+        });
+      } else {
+        setState(() {
+          message = "Connection lost. Please reconnect.";
+          messageColor = Colors.red;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        message = "Error sending data: $e";
+        messageColor = Colors.red;
+      });
+    } finally {
+      setState(() {
+        _isSending = false;
+      });
+    }
   }
 
   @override
@@ -51,38 +103,31 @@ class _LockUnlockPageState extends State<LockUnlockPage>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ScaleTransition(
-                    scale: _animation,
-                    child: const Icon(Icons.lock_open,
-                        size: 120, color: Colors.white)),
-                const SizedBox(height: 30),
-                Shimmer.fromColors(
-                  // Shimmer effect on text
-                  baseColor: Colors.white,
-                  highlightColor: Colors.grey[200]!,
-                  child: AnimatedTextKit(
-                    animatedTexts: [
-                      TypewriterAnimatedText(
-                        'Smart Locker System',
-                        textStyle: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                    isRepeatingAnimation: false,
-                  ),
+                Text(
+                  message,
+                  style: TextStyle(color: messageColor, fontSize: 20),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
                 ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const PinScreen()),
-                    );
-                  },
+                  onPressed: _isSending
+                      ? null
+                      : () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PinScreen(
+                                connection: connection,
+                              ),
+                            ),
+                          );
+                          if (result == true) {
+                            setState(() {
+                              message = "Locker Unlocked";
+                              messageColor = Colors.green;
+                            });
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     foregroundColor: Colors.white,
                     backgroundColor: Colors.green.shade700,
@@ -92,29 +137,7 @@ class _LockUnlockPageState extends State<LockUnlockPage>
                       borderRadius: BorderRadius.circular(30.0),
                     ),
                   ),
-                  child: const Text(
-                    'Unlock Locker',
-                    style: TextStyle(fontSize: 18),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () {
-                    // Add lock functionality if required
-                  },
-                  style: ElevatedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.red.shade700,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30.0),
-                    ),
-                  ),
-                  child: const Text(
-                    'Lock Locker',
-                    style: TextStyle(fontSize: 18),
-                  ),
+                  child: const Text('Open Locker'),
                 ),
               ],
             ),

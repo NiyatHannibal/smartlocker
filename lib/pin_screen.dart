@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -5,48 +8,55 @@ import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:shimmer/shimmer.dart';
 
 class PinScreen extends StatefulWidget {
-  const PinScreen({Key? key}) : super(key: key);
+  final BluetoothConnection connection;
+
+  const PinScreen({Key? key, required this.connection}) : super(key: key);
 
   @override
   _PinScreenState createState() => _PinScreenState();
 }
 
 class _PinScreenState extends State<PinScreen> {
-  final String correctPin = "1234"; // Example PIN
+  final String correctPin = "1234";
   String currentPin = "";
   String message = "Enter PIN";
   Color messageColor = Colors.white;
-  BluetoothConnection? connection;
+  late BluetoothConnection connection;
+  bool _isSending = false;
 
   @override
   void initState() {
     super.initState();
-    scanForBluetoothDevice();
+    connection = widget.connection;
   }
 
-  void scanForBluetoothDevice() async {
+  Future<void> _sendData(String command) async {
+    if (_isSending) return;
+
+    setState(() {
+      _isSending = true;
+      message = "Sending command...";
+      messageColor = Colors.yellow;
+    });
+
     try {
-      FlutterBluetoothSerial.instance.startDiscovery().listen((result) async {
-        if (result.device.name == 'YourBluetoothDeviceName') {
-          await FlutterBluetoothSerial.instance.cancelDiscovery();
-          BluetoothConnection.toAddress(result.device.address).then((conn) {
-            connection = conn;
-            setState(() {
-              message = "Connected to ${result.device.name}";
-              messageColor = Colors.green;
-            });
-          }).catchError((e) {
-            setState(() {
-              message = "Connection error: $e";
-              messageColor = Colors.red;
-            });
-          });
-        }
-      });
+      if (connection.isConnected) {
+        connection.output.add(Uint8List.fromList(utf8.encode(command + "\n")));
+        await connection.output.allSent;
+      } else {
+        setState(() {
+          message = "Connection lost. Please reconnect.";
+          messageColor = Colors.red;
+        });
+      }
     } catch (e) {
       setState(() {
-        message = "Discovery error: $e";
+        message = "Error sending data: $e";
         messageColor = Colors.red;
+      });
+    } finally {
+      setState(() {
+        _isSending = false;
       });
     }
   }
@@ -67,7 +77,7 @@ class _PinScreenState extends State<PinScreen> {
     }
   }
 
-  void verifyPin() {
+  void verifyPin() async {
     if (currentPin != correctPin) {
       setState(() {
         message = "Wrong PIN!";
@@ -77,15 +87,23 @@ class _PinScreenState extends State<PinScreen> {
         'pin': currentPin,
         'timestamp': Timestamp.now(),
       });
-      setState(() {
-        currentPin = ""; // Clear the pin
+      // Clear the currentPin After a Delay, Giving Time for the "Wrong PIN!" Message to be Displayed:
+      Future.delayed(const Duration(seconds: 1), () {
+        setState(() {
+          currentPin = "";
+        });
       });
     } else {
-      setState(() {
-        message = "Locker Unlocked!";
-        messageColor = Colors.green;
-        currentPin = "";
-      });
+      // 1. Log the successful attempt to Firebase:
+      FirebaseFirestore.instance
+          .collection('successfulAttempts')
+          .add({'timestamp': Timestamp.now()});
+
+      // 2. Send the "OPEN" command to the Arduino via Bluetooth:
+      await _sendData("OPEN");
+
+      Navigator.pop(
+          context, true); // Pass success status back to LockUnlockPage
     }
   }
 
@@ -107,7 +125,6 @@ class _PinScreenState extends State<PinScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Shimmer.fromColors(
-                  // Shimmer effect on text
                   baseColor: Colors.white,
                   highlightColor: Colors.grey[200]!,
                   child: AnimatedTextKit(

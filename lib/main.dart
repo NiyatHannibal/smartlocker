@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 
 import 'bluetooth_connection_page.dart';
 import 'firebase_options.dart';
-import 'lock_unlock_page.dart';
-import 'pin_screen.dart';
 import 'splash_screen.dart';
 
 Future<void> main() async {
@@ -32,8 +30,6 @@ class PinAuthApp extends StatelessWidget {
         '/': (context) => SplashScreen(), // Splash Screen
         '/bluetooth': (context) =>
             BluetoothConnectionPage(), // Bluetooth connection page
-        '/lockunlock': (context) => LockUnlockPage(), // Lock/Unlock button page
-        '/pin': (context) => const PinScreen(), // PIN Authentication page
       },
     );
   }

@@ -28,7 +28,7 @@ class _SplashScreenState extends State<SplashScreen>
     _animationController.forward();
 
     // Delay and navigate safely
-    Future.delayed(const Duration(seconds: 5), () {
+    Future.delayed(const Duration(seconds: 20), () {
       if (mounted) {
         _navigateToNextScreen();
       }
